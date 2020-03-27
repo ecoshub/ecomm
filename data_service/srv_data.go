@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"io/ioutil"
 	"jin"
 	"log"
@@ -15,7 +16,7 @@ import (
 var (
 	// environment directories,
 	// 'curr' keyword is a wild card for 'currentDirectory'
-	// valid wild card with 'github.com/ecoshub/penman' package
+	// valid wildcard can be user with 'github.com/ecoshub/penman' package
 	envDatabaseDir string = "curr/.env_database"
 	envServiceDir  string = "curr/.env_service"
 	envMainDir     string = "curr/../.env_main"
@@ -38,14 +39,17 @@ var (
 	// json format schemes
 	responseScheme *jin.Scheme
 
+	// errors
+	recordNotExists error = errors.New("Record does not exists.")
+
 	// log strings
 	srvStart    string = ">> Data Service Started."
 	srvEnd      string = ">> Data Service Shutdown Unexpectedly. Error:"
 	reqArrived  string = ">> Request Arrived At"
 	reqBody     string = ">> Request Body:"
 	statError   string = ">> Status method not allowed"
-	dataFailed  string = ">> Data Request Failed:"
-	dataSuccess string = ">> Data Request Done."
+	dataFailed  string = ">> Data Service Request Failed:"
+	dataSuccess string = ">> Data Service Request Done."
 )
 
 func init() {
@@ -107,18 +111,19 @@ func dataHandle(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "insert":
-		body, err := jin.Get(json, "body")
+		err, status := insertRecord(json)
 		if err != nil {
-			failHandle(w, dataFailed+err.Error(), http.StatusInternalServerError)
+			failHandle(w, dataFailed+err.Error(), status)
 			return
 		}
-		err = insertRecord(body)
+	case "update":
+		err, status := updateRecord(json)
 		if err != nil {
-			failHandle(w, dataFailed+err.Error(), http.StatusInternalServerError)
+			failHandle(w, dataFailed+err.Error(), status)
 			return
 		}
-		doneHandle(w)
 	}
+	doneHandle(w)
 }
 
 func dbConn() {
@@ -129,19 +134,50 @@ func dbConn() {
 	}
 }
 
-func insertRecord(json []byte) error {
-	keys, values, err := jin.GetKeysValues(json)
+func updateRecord(json []byte) (error, int) {
+	jsonMap, err := jin.GetMap(json)
 	if err != nil {
-		return err
+		return err, http.StatusInternalServerError
+	}
+	keys, values, err := jin.GetKeysValues(json, "body")
+	if err != nil {
+		return err, http.StatusInternalServerError
+	}
+	// record exists or not
+	query := seecool.Select(envServiceMap["table"]).
+		Equal(jsonMap["key"], jsonMap["value"])
+	result, err := seecool.QueryJson(base, query)
+	if err != nil {
+		return err, http.StatusInternalServerError
+	}
+	if string(result) == "[]" {
+		return recordNotExists, http.StatusBadRequest
+	}
+
+	query = seecool.Update(envServiceMap["table"]).
+		Keys(keys...).
+		Values(values...).
+		Equal(jsonMap["key"], jsonMap["value"])
+	_, err = base.Query(query.String())
+	if err != nil {
+		return err, http.StatusInternalServerError
+	}
+	return nil, http.StatusOK
+}
+
+func insertRecord(json []byte) (error, int) {
+	keys, values, err := jin.GetKeysValues(json, "body")
+	if err != nil {
+		return err, http.StatusInternalServerError
 	}
 	query := seecool.Insert(envServiceMap["table"]).
 		Keys(keys...).
 		Values(values...)
 	_, err = base.Query(query.String())
 	if err != nil {
-		return err
+		return err, http.StatusInternalServerError
 	}
-	return nil
+	return nil, http.StatusOK
 }
 
 func statusFailed(err string) []byte {
