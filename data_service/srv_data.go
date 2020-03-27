@@ -45,7 +45,7 @@ var (
 	reqBody     string = ">> Request Body:"
 	statError   string = ">> Status method not allowed"
 	dataFailed  string = ">> Data Request Failed:"
-	dataGranted string = ">> Data Request Granted."
+	dataSuccess string = ">> Data Request Done."
 )
 
 func init() {
@@ -89,24 +89,19 @@ func dataHandle(w http.ResponseWriter, r *http.Request) {
 
 	// method check
 	if string(r.Method) != http.MethodPost {
-		log.Println(dataFailed, statError)
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write(statusFailed(statError))
+		failHandle(w, dataFailed+statError, http.StatusInternalServerError)
 		return
 	}
 	// body read for json parse.
 	json, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Println(dataFailed, err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(statusFailed(err.Error()))
+		failHandle(w, dataFailed+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// action value determines the CRUD ection.
 	action, err := jin.GetString(json, "action")
 	if err != nil {
-		log.Println(dataFailed, err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(statusFailed(err.Error()))
+		failHandle(w, dataFailed, http.StatusInternalServerError)
 		return
 	}
 
@@ -114,27 +109,17 @@ func dataHandle(w http.ResponseWriter, r *http.Request) {
 	case "insert":
 		body, err := jin.Get(json, "body")
 		if err != nil {
-			log.Println(dataFailed, err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write(statusFailed(err.Error()))
+			failHandle(w, dataFailed+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		err = insertRecord(body)
 		if err != nil {
-			log.Println(dataFailed, err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write(statusFailed(err.Error()))
+			failHandle(w, dataFailed+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Println(dataGranted)
-		w.WriteHeader(http.StatusOK)
-		w.Write(statusGranted())
+		doneHandle(w)
 	}
 }
-
-// json := []byte(`{"username":"ozcanocak","password":"ozcanocak","email":"ozcanocak@gmail.com"}`)
-// err := insertRecord(json)
-// fmt.Println(err)
 
 func dbConn() {
 	var err error
@@ -163,6 +148,18 @@ func statusFailed(err string) []byte {
 	return responseScheme.MakeJson("Failed", seecool.EscapeQuote(err))
 }
 
-func statusGranted() []byte {
+func statusSuccess() []byte {
 	return responseScheme.MakeJson("OK", "null")
+}
+
+func failHandle(w http.ResponseWriter, err string, status int) {
+	log.Println(dataFailed, err)
+	w.WriteHeader(status)
+	w.Write(statusFailed(err))
+}
+
+func doneHandle(w http.ResponseWriter) {
+	log.Println(dataSuccess)
+	w.WriteHeader(http.StatusOK)
+	w.Write(statusSuccess())
 }
