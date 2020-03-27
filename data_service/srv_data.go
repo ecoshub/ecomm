@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"io/ioutil"
 	"jin"
 	"log"
 	"net/http"
@@ -34,14 +35,17 @@ var (
 	// main database pointer
 	base *sql.DB
 
+	// json format schemes
+	responseScheme *jin.Scheme
+
 	// log strings
 	srvStart    string = ">> Data Service Started."
 	srvEnd      string = ">> Data Service Shutdown Unexpectedly. Error:"
 	reqArrived  string = ">> Request Arrived At"
 	reqBody     string = ">> Request Body:"
 	statError   string = ">> Status method not allowed"
-	dataFailed  string = ">> Data Failed:"
-	dataGranted string = ">> Data Granted."
+	dataFailed  string = ">> Data Request Failed:"
+	dataGranted string = ">> Data Request Granted."
 )
 
 func init() {
@@ -62,6 +66,8 @@ func init() {
 	if dbEnv == "" {
 		panic(dbEnv)
 	}
+	// response scheme
+	responseScheme = jin.MakeScheme("status", "error")
 }
 
 func main() {
@@ -81,6 +87,49 @@ func dataHandle(w http.ResponseWriter, r *http.Request) {
 	// request log
 	log.Println(reqArrived, r.RemoteAddr)
 
+	// method check
+	if string(r.Method) != http.MethodPost {
+		log.Println(dataFailed, statError)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write(statusFailed(statError))
+		return
+	}
+	// body read for json parse.
+	json, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Println(dataFailed, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(statusFailed(err.Error()))
+		return
+	}
+	action, err := jin.GetString(json, "action")
+	if err != nil {
+		log.Println(dataFailed, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(statusFailed(err.Error()))
+		return
+	}
+
+	switch action {
+	case "insert":
+		body, err := jin.Get(json, "body")
+		if err != nil {
+			log.Println(dataFailed, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write(statusFailed(err.Error()))
+			return
+		}
+		err = insertRecord(body)
+		if err != nil {
+			log.Println(dataFailed, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write(statusFailed(err.Error()))
+			return
+		}
+		log.Println(dataGranted)
+		w.WriteHeader(http.StatusOK)
+		w.Write(statusGranted())
+	}
 }
 
 // json := []byte(`{"username":"ozcanocak","password":"ozcanocak","email":"ozcanocak@gmail.com"}`)
@@ -108,4 +157,12 @@ func insertRecord(json []byte) error {
 		return err
 	}
 	return nil
+}
+
+func statusFailed(err string) []byte {
+	return responseScheme.MakeJson("Failed", seecool.EscapeQuote(err))
+}
+
+func statusGranted() []byte {
+	return responseScheme.MakeJson("OK", "null")
 }
