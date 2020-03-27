@@ -47,8 +47,8 @@ var (
 	reqArrived  string = ">> Request Arrived At"
 	reqBody     string = ">> Request Body:"
 	statError   string = ">> Status method not allowed"
-	authFailed  string = ">> Authentication Failed:"
-	authGranted string = ">> Authentication Granted."
+	authFailed  string = ">> Authentication Request Failed:"
+	authGranted string = ">> Authentication Request Granted."
 )
 
 func init() {
@@ -104,7 +104,7 @@ func authHandle(w http.ResponseWriter, r *http.Request) {
 	json, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println(authFailed, err)
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(http.StatusInternalServerError)
 		w.Write(statusFailed(err.Error()))
 		return
 	}
@@ -168,9 +168,9 @@ func checkRecord(table string, json []byte) (error, string) {
 }
 
 func statusFailed(err string) []byte {
-	return responseScheme.MakeJson("Failed", "null", err)
+	return responseScheme.MakeJson("Failed", "null", seecool.EscapeQuote(err))
 }
 
 func statusGranted(id string) []byte {
-	return responseScheme.MakeJson("Granted", id, "null")
+	return responseScheme.MakeJson("OK", id, "null")
 }
