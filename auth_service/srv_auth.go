@@ -16,7 +16,7 @@ import (
 var (
 	// environment directories,
 	// 'curr' keyword is a wild card for 'currentDirectory'
-	// valid wild card with 'github.com/ecoshub/penman' package
+	// valid wildcard can be user with 'github.com/ecoshub/penman' package
 	envDatabaseDir string = "curr/.env_database"
 	envAuthDir     string = "curr/.env_service"
 	envMainDir     string = "curr/../.env_main"
