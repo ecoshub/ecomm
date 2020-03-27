@@ -2,7 +2,9 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
+	"jin"
+	"log"
+	"net/http"
 	"penman"
 	"seecool"
 
@@ -31,6 +33,15 @@ var (
 
 	// main database pointer
 	base *sql.DB
+
+	// log strings
+	srvStart    string = ">> Data Service Started."
+	srvEnd      string = ">> Data Service Shutdown Unexpectedly. Error:"
+	reqArrived  string = ">> Request Arrived At"
+	reqBody     string = ">> Request Body:"
+	statError   string = ">> Status method not allowed"
+	dataFailed  string = ">> Data Failed:"
+	dataGranted string = ">> Data Granted."
 )
 
 func init() {
@@ -40,7 +51,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	mainPort = envMainMap["auth_service_port"]
+	mainPort = envMainMap["data_service_port"]
 	// read env_service file
 	envServiceMap, err = seecool.GetEnv(envServiceDir)
 	if err != nil {
@@ -55,13 +66,26 @@ func init() {
 
 func main() {
 	dbConn()
-	var err error
-	query := seecool.Select("users", "username", "type")
-	resp, err := seecool.QueryJson(base, query)
-	fmt.Println(err)
-	fmt.Println(string(resp))
+	log.Println(srvStart, "port:", mainPort)
+	http.HandleFunc("/", dataHandle)
+	err := http.ListenAndServe(":"+mainPort, nil)
+	// handle later
+	log.Println(srvEnd, err)
 	defer base.Close()
 }
+
+func dataHandle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Origin, cache-control")
+	w.Header().Set("Content-Type", "application/json")
+	// request log
+	log.Println(reqArrived, r.RemoteAddr)
+
+}
+
+// json := []byte(`{"username":"ozcanocak","password":"ozcanocak","email":"ozcanocak@gmail.com"}`)
+// err := insertRecord(json)
+// fmt.Println(err)
 
 func dbConn() {
 	var err error
@@ -69,4 +93,19 @@ func dbConn() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func insertRecord(json []byte) error {
+	keys, values, err := jin.GetKeysValues(json)
+	if err != nil {
+		return err
+	}
+	query := seecool.Insert(envServiceMap["table"]).
+		Keys(keys...).
+		Values(values...)
+	_, err = base.Query(query.String())
+	if err != nil {
+		return err
+	}
+	return nil
 }
