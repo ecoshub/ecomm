@@ -95,17 +95,13 @@ func authHandle(w http.ResponseWriter, r *http.Request) {
 
 	// method check
 	if string(r.Method) != http.MethodPost {
-		log.Println(authFail, statError)
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write(statusFailed(statError))
+		failHandle(w, statError, http.StatusMethodNotAllowed)
 		return
 	}
 	// body read for json parse.
 	json, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Println(authFailed, err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(statusFailed(err.Error()))
+		failHandle(w, authFailed+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer r.Body.Close()
@@ -113,16 +109,12 @@ func authHandle(w http.ResponseWriter, r *http.Request) {
 	log.Println(reqBody, string(json))
 
 	// record check core function.
-	err, key := checkRecord(envServiceMap["userTable"], json)
+	key, err := checkRecord(envServiceMap["userTable"], json)
 	if err != nil {
-		log.Println(authFailed, err)
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write(statusFailed(err.Error()))
+		failHandle(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	log.Println(authGranted)
-	w.WriteHeader(http.StatusOK)
-	w.Write(statusGranted(key))
+	doneHandle(w, key)
 }
 
 func dbConn() (*sql.DB, error) {
@@ -133,38 +125,38 @@ func dbConn() (*sql.DB, error) {
 	return db, nil
 }
 
-func checkRecord(table string, json []byte) (error, string) {
+func checkRecord(table string, json []byte) (string, error) {
 	db, err := dbConn()
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 	defer db.Close()
 
 	jsonMap, err := jin.GetMap(json)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 	primaryKey := envServiceMap["primKey"]
 	query := seecool.Select(table).Equal(primaryKey, jsonMap[primaryKey])
 	result, err := seecool.QueryJson(db, query)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 
 	if string(result) == "[]" {
-		return recordNotExist, ""
+		return "", recordNotExist
 	}
 
 	resultMap, err := jin.GetMap(result, "0")
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 	passwordKey := envServiceMap["passKey"]
 	if resultMap[passwordKey] != jsonMap[passwordKey] {
-		return authFail, ""
+		return "", authFail
 	}
 
-	return nil, resultMap[envServiceMap["returnKey"]]
+	return resultMap[envServiceMap["returnKey"]], nil
 }
 
 func statusFailed(err string) []byte {
@@ -173,4 +165,16 @@ func statusFailed(err string) []byte {
 
 func statusGranted(id string) []byte {
 	return responseScheme.MakeJson("OK", id, "null")
+}
+
+func failHandle(w http.ResponseWriter, err string, status int) {
+	log.Println(authFailed, err)
+	w.WriteHeader(status)
+	w.Write(statusFailed(err))
+}
+
+func doneHandle(w http.ResponseWriter, key string) {
+	log.Println(authGranted)
+	w.WriteHeader(http.StatusOK)
+	w.Write(statusGranted(key))
 }
