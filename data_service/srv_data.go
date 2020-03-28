@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"penman"
 	"seecool"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
@@ -46,6 +47,7 @@ var (
 	statError         *errorx.Error = errorx.New("Not Allowed", "Status method not allowed", 3)
 	dataFailed        *errorx.Error = errorx.New("Request Failed", "Data Service Request Failed", 3)
 	dataSuccess       *errorx.Error = errorx.New("Request Done", "Data Service Request Done", 3)
+	emptyFields       *errorx.Error = errorx.New("Emtyp Field", "Necassary field is empty", 3)
 
 	// log strings
 	srvStart   string = ">> Data Service Started"
@@ -135,6 +137,25 @@ func dataHandle(w http.ResponseWriter, r *http.Request) {
 			failHandle(w, err, status)
 			return
 		}
+	case "search", "searchx":
+		var (
+			result []byte
+			err    error
+			status int
+		)
+		if action == "search" {
+			result, err, status = searchRecord(json)
+		} else {
+			result, err, status = searchxRecord(json)
+		}
+		if err != nil {
+			failHandle(w, err, status)
+			return
+		}
+		log.Println(dataSuccess)
+		w.WriteHeader(http.StatusOK)
+		w.Write(result)
+		return
 	default:
 		failHandle(w, wrongAction, http.StatusBadRequest)
 		return
@@ -142,12 +163,133 @@ func dataHandle(w http.ResponseWriter, r *http.Request) {
 	doneHandle(w)
 }
 
-func dbConn() {
-	var err error
-	base, err = sql.Open(envServiceMap["user"], dbEnv)
+func searchRecord(json []byte) ([]byte, error, int) {
+	keys, values, err := jin.GetKeysValues(json, "body")
 	if err != nil {
-		panic(err)
+		return nil, err, http.StatusInternalServerError
 	}
+	if len(keys) == 0 && len(values) == 0 {
+		return nil, emptyFields, http.StatusBadRequest
+	}
+	cols, err := jin.GetStringArray(json, "columns")
+	if err != nil {
+		lene := len(err.Error())
+		errCode := err.Error()[lene-3 : lene-1]
+		if errCode != "08" {
+			return nil, err, http.StatusInternalServerError
+		} else {
+			cols = []string{}
+		}
+	}
+	relation, err := jin.GetString(json, "relation")
+	if err != nil {
+		return nil, emptyFields, http.StatusBadRequest
+	}
+	query := seecool.Select(envServiceMap["table"], cols...)
+	switch strings.ToLower(relation) {
+	case "and":
+		for i := 0; i < len(keys); i++ {
+			query = query.Cond(keys[i], "~*", values[i])
+		}
+	case "or":
+		for i := 0; i < len(keys); i++ {
+			query = query.Or(keys[i], "~*", values[i])
+		}
+	}
+	orderCol, err := jin.GetString(json, "order_column")
+	if err != nil {
+		lene := len(err.Error())
+		errCode := err.Error()[lene-3 : lene-1]
+		if errCode != "08" {
+			return nil, err, http.StatusInternalServerError
+		}
+	}
+	orderBy, err := jin.GetString(json, "order_by")
+	if err != nil {
+		lene := len(err.Error())
+		errCode := err.Error()[lene-3 : lene-1]
+		if errCode != "08" {
+			return nil, err, http.StatusInternalServerError
+		}
+	}
+	if orderCol != "" {
+		if orderBy != "" {
+			if strings.ToLower(orderBy) == "desc" {
+				query = query.OrderDesc(orderCol)
+			} else {
+				query = query.Order(orderCol)
+			}
+		} else {
+			query = query.Order(orderCol)
+		}
+	}
+	if err != nil {
+		lene := len(err.Error())
+		errCode := err.Error()[lene-3 : lene-1]
+		if errCode != "08" {
+			return nil, err, http.StatusInternalServerError
+		} else {
+			cols = []string{}
+		}
+	}
+	result, err := seecool.QueryJson(base, query)
+	if err != nil {
+		return nil, err, http.StatusInternalServerError
+	}
+	return result, nil, http.StatusOK
+}
+
+func searchxRecord(json []byte) ([]byte, error, int) {
+	keys, values, err := jin.GetKeysValues(json, "body")
+	if err != nil {
+		return nil, err, http.StatusInternalServerError
+	}
+	if len(keys) == 0 && len(values) == 0 {
+		return nil, emptyFields, http.StatusBadRequest
+	}
+	cols, err := jin.GetStringArray(json, "columns")
+	if err != nil {
+		lene := len(err.Error())
+		errCode := err.Error()[lene-3 : lene-1]
+		if errCode != "08" {
+			return nil, err, http.StatusInternalServerError
+		} else {
+			cols = []string{}
+		}
+	}
+	query := seecool.Select(envServiceMap["table"], cols...).Equals(keys, values)
+	orderCol, err := jin.GetString(json, "order_column")
+	if err != nil {
+		lene := len(err.Error())
+		errCode := err.Error()[lene-3 : lene-1]
+		if errCode != "08" {
+			return nil, err, http.StatusInternalServerError
+		}
+	}
+	orderBy, err := jin.GetString(json, "order_by")
+	if err != nil {
+		lene := len(err.Error())
+		errCode := err.Error()[lene-3 : lene-1]
+		if errCode != "08" {
+			return nil, err, http.StatusInternalServerError
+		}
+	}
+	if orderCol != "" {
+		if orderBy != "" {
+			if strings.ToLower(orderBy) == "desc" {
+				query = query.OrderDesc(orderCol)
+			} else {
+				query = query.Order(orderCol)
+			}
+		} else {
+			query = query.Order(orderCol)
+		}
+	}
+	result, err := seecool.QueryJson(base, query)
+	if err != nil {
+		return nil, err, http.StatusInternalServerError
+	}
+	return result, nil, http.StatusOK
 }
 
 func deleteRecord(json []byte) (error, int) {
@@ -221,6 +363,14 @@ func insertRecord(json []byte) (error, int) {
 		return err, http.StatusInternalServerError
 	}
 	return nil, http.StatusOK
+}
+
+func dbConn() {
+	var err error
+	base, err = sql.Open(envServiceMap["user"], dbEnv)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func statusFailed(err error) []byte {
