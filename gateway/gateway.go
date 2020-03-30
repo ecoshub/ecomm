@@ -15,17 +15,32 @@ import (
 )
 
 var (
+	// environment directories,
+	// 'curr' keyword is a wild card for 'currentDirectory'
+	// valid wildcard can be user with 'ecoshub/penman' and 'ecoshub/seecool' GetEnv() func.
 	envMainDir        string = "curr/../.env_main"
 	secretDir         string = "../.secret"
 	secret            string
-	sessStore         *sessions.CookieStore
+	store             *sessions.CookieStore
 	auth_service_port string
 
-	portNotExist *errorx.Error = errorx.New("Fatal Error", "Main service port does not exist in the main environment file.", 6)
-	// main environment environment map
-	envMainMap map[string]string
+	myServiceName string = "gate_service_port"
+
 	// gateway service main port
 	mainPort string
+
+	// main environment environment map
+	envMainMap map[string]string
+
+	// errors
+	portNotExist   *errorx.Error = errorx.New("Fatal Error", "Main service port does not exist in the main environment file.", 0)
+	secretNotExist *errorx.Error = errorx.New("Fatal Error", "secret not exist in the main environment file.", 1)
+
+	// log strings
+	srvStart   string = ">> Gateway Service Started."
+	srvEnd     string = ">> Gateway Service Shutdown Unexpectedly. Error:"
+	reqArrived string = ">> Request Arrived At"
+	reqBody    string = ">> Request Body:"
 )
 
 func init() {
@@ -35,16 +50,16 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	mainPort = envMainMap["gate_service_port"]
+	mainPort = envMainMap[myServiceName]
 	if mainPort == "" {
 		panic(portNotExist)
 	}
 	secret = penman.SRead(secretDir)
 	if secret == "" {
-		panic("No secret found.")
+		panic(secretNotExist)
 	}
-	sessStore = sessions.NewCookieStore([]byte(secret))
-	sessStore.Options = &sessions.Options{
+	store = sessions.NewCookieStore([]byte(secret))
+	store.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   30 * 24 * 60 * 60, // 1 month
 		HttpOnly: true,
@@ -53,96 +68,101 @@ func init() {
 
 func main() {
 
-	fmt.Println("Gateway Service Started at:", mainPort)
-	http.HandleFunc("/", rootHandle)
+	log.Println(srvStart, "port:", mainPort)
+	http.HandleFunc("/login", loginHandle)
+	http.HandleFunc("/logout", logoutHandle)
 	http.ListenAndServe(":"+mainPort, nil)
-	// auth()
-	// permission()
-	// sess_cookie()
-	// handle_request()
 }
 
-func rootHandle(w http.ResponseWriter, r *http.Request) {
-	// session.Values["json"] = "bar"
-	// session.Values[42] = 43
-	// session.Values = nil
-	// err := session.Save(r, w)
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
-	sess, exists, err := cookieCheck("login", r)
+func loginHandle(w http.ResponseWriter, r *http.Request) {
+	loginSession, auth, err := cookieHandle(w, r)
 	if err != nil {
-		log.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		failHandle(w, err, http.StatusInternalServerError)
+		return
 	}
-	if exists {
-		fmt.Println("cookie exists")
-		fmt.Println(sess.Values["user_id"])
-	} else {
-		fmt.Println("cookie not exists")
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-		}
-		resp, err := authenticationControl(r)
-		stat, err := jin.GetString(resp, "status")
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-		}
-		if stat == "OK" {
-			respMap, err := jin.GetMap(resp, "response")
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(err.Error()))
-				return
-			}
-			fmt.Println(respMap)
-			fmt.Println("DONE")
-			// sess.Values["user_id"] = respMap["user_id"]
-			// sess.Values["type"] = "user"
-			// err = sess.Save(r, w)
-			// if err != nil {
-			// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-			// 	return
-			// }
-		} else {
-
-		}
-		// breakx.Printif(string(resp), err)
-		// session, err := sessStore.Get(r, "login")
-	}
-	return
+	fmt.Println(auth)
+	fmt.Println(loginSession.Values)
 }
 
-func cookieCheck(name string, r *http.Request) (*sessions.Session, bool, error) {
-	session, err := sessStore.Get(r, "login")
-	fmt.Printf("%T\n", session)
+func logoutHandle(w http.ResponseWriter, r *http.Request) {
+	// later
+}
+
+func cookieHandle(w http.ResponseWriter, r *http.Request) (*sessions.Session, bool, error) {
+	// get cookie named 'login'
+	loginSession, err := store.Get(r, "login")
 	if err != nil {
 		return nil, false, err
 	}
-	if len(session.Values) == 0 {
-		return nil, false, nil
+
+	// shortcut auth
+	if loginSession.Values["auth"] == "true" {
+		// keep going
+		return loginSession, true, nil
 	}
-	return session, true, nil
+
+	// mthod check for login action.
+	if string(r.Method) == "POST" {
+		// request read
+		json, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return loginSession, false, err
+		}
+		action, err := jin.GetString(json, "action")
+		if err != nil {
+			lene := len(err.Error())
+			errCode := err.Error()[lene-3 : lene-1]
+			if errCode != "08" {
+				return loginSession, false, err
+			}
+		}
+
+		// wants to login?
+		if action == "login" {
+			resp, auth, err := authenticationControl(json)
+			if err != nil {
+				return loginSession, false, err
+			}
+			if auth {
+				respMap, err := jin.GetMap(resp, "response")
+				if err != nil {
+					return loginSession, false, err
+				}
+				for k, v := range respMap {
+					loginSession.Values[k] = v
+				}
+				loginSession.Values["auth"] = "true"
+				err = loginSession.Save(r, w)
+				if err != nil {
+					return loginSession, false, err
+				}
+				return loginSession, true, nil
+			}
+		}
+	}
+	loginSession.Values["auth"] = "false"
+	err = loginSession.Save(r, w)
+	if err != nil {
+		return loginSession, false, err
+	}
+	return loginSession, false, nil
 }
 
-func authenticationControl(r *http.Request) ([]byte, error) {
-	json, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println("arrived", string(json))
+func authenticationControl(json []byte) ([]byte, bool, error) {
 	resp, err := http.Post("http://localhost:"+envMainMap["auth_service_port"], "application/json", bytes.NewBuffer(json))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer resp.Body.Close()
 	json, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return json, nil
+	return json, true, nil
+}
+
+func failHandle(w http.ResponseWriter, err error, status int) {
+	log.Println(err)
+	w.WriteHeader(status)
+	w.Write([]byte(err.Error()))
 }
