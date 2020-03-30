@@ -37,12 +37,14 @@ var (
 	responseScheme *jin.Scheme
 
 	// errors
-	missingEnvFile *errorx.Error = errorx.New("Fatal Error", "Missing environment file or wrong file directory", 2)
-	authFail       *errorx.Error = errorx.New("Database", "Wrong password", 0)
-	recordNotExist *errorx.Error = errorx.New("Database", "Record Not Exists", 1)
-	statError      *errorx.Error = errorx.New("Service", "Status method not allowed", 3)
-	authFailed     *errorx.Error = errorx.New("Service", "Authentication Request Failed", 4)
-	authGranted    *errorx.Error = errorx.New("Service", "Authentication Request Granted", 5)
+	missingEnvFile *errorx.Error = errorx.New("Fatal Error", "Missing environment file or wrong file directory", 0)
+	portNotExist   *errorx.Error = errorx.New("Fatal Error", "Main service port does not exist in the main environment file.", 1)
+	authFail       *errorx.Error = errorx.New("Database", "Wrong password", 2)
+	recordNotExist *errorx.Error = errorx.New("Database", "Record Not Exists", 3)
+	moreExist      *errorx.Error = errorx.New("Database", "More then one record exists with your primary key value", 4)
+	statError      *errorx.Error = errorx.New("Service", "Status method not allowed", 5)
+	authFailed     *errorx.Error = errorx.New("Service", "Authentication Request Failed", 6)
+	authGranted    *errorx.Error = errorx.New("Service", "Authentication Request Granted", 7)
 
 	// log strings
 	srvStart   string = ">> Authentication Service Started."
@@ -59,6 +61,9 @@ func init() {
 		panic(err)
 	}
 	mainPort = envMainMap["auth_service_port"]
+	if mainPort == "" {
+		panic(err)
+	}
 	// read env_service file
 	envServiceMap, err = seecool.GetEnv(envAuthDir)
 	if err != nil {
@@ -75,7 +80,7 @@ func init() {
 	}
 	defer db.Close()
 	// response scheme
-	responseScheme = jin.MakeScheme("status", envServiceMap["returnKey"], "error")
+	responseScheme = jin.MakeScheme("status", "response", "error")
 }
 
 func main() {
@@ -125,44 +130,73 @@ func dbConn() (*sql.DB, error) {
 	return db, nil
 }
 
-func checkRecord(table string, json []byte) (string, int, error) {
+func checkRecord(table string, json []byte) ([]byte, int, error) {
 	db, err := dbConn()
 	if err != nil {
-		return "", http.StatusInternalServerError, err
+		return nil, http.StatusInternalServerError, err
 	}
 	defer db.Close()
-
-	jsonMap, err := jin.GetMap(json)
-	if err != nil {
-		return "", http.StatusInternalServerError, err
-	}
+	// get control keys
 	primaryKey := envServiceMap["primKey"]
-	query := seecool.Select(table).Equal(primaryKey, jsonMap[primaryKey])
+	passKey := envServiceMap["passKey"]
+
+	// get received primary key from request
+	primKeyReceive, err := jin.GetString(json, primaryKey)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	// get received primary password key from request
+	passKeyReceive, err := jin.GetString(json, passKey)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	// create a query from primary key search
+	query := seecool.Select(table).Equal(primaryKey, primKeyReceive)
 	result, err := seecool.QueryJson(db, query)
 	if err != nil {
-		return "", http.StatusInternalServerError, err
+		return nil, http.StatusInternalServerError, err
 	}
+	// empty response control
 	if string(result) == "[]" {
-		return "", http.StatusBadRequest, recordNotExist
+		return nil, http.StatusBadRequest, recordNotExist
 	}
-	resultMap, err := jin.GetMap(result, "0")
+	// parse response json
+	prs, err := jin.Parse(result)
 	if err != nil {
-		return "", http.StatusInternalServerError, err
+		return nil, http.StatusInternalServerError, err
 	}
-	passwordKey := envServiceMap["passKey"]
-	if resultMap[passwordKey] != jsonMap[passwordKey] {
-		return "", http.StatusUnauthorized, authFail
+	// get as array for length check
+	arr, err := prs.GetStringArray()
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
 	}
-
-	return resultMap[envServiceMap["returnKey"]], http.StatusInternalServerError, nil
+	// length check for response array
+	if len(arr) != 1 {
+		return nil, http.StatusInternalServerError, moreExist
+	}
+	// get correct password from database response
+	correctPass, err := prs.GetString("0", passKey)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	// password check
+	if passKeyReceive != correctPass {
+		return nil, http.StatusOK, authFail
+	}
+	//  get response body for return
+	response, err := prs.Get("0")
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	return response, http.StatusOK, nil
 }
 
 func statusFailed(err error) []byte {
 	return responseScheme.MakeJson("Failed", "null", seecool.EscapeQuote(err.Error()))
 }
 
-func statusGranted(id string) []byte {
-	return responseScheme.MakeJson("OK", id, "null")
+func statusGranted(response []byte) []byte {
+	return responseScheme.MakeJson("OK", string(response), "null")
 }
 
 func failHandle(w http.ResponseWriter, err error, status int) {
@@ -171,8 +205,8 @@ func failHandle(w http.ResponseWriter, err error, status int) {
 	w.Write(statusFailed(err))
 }
 
-func doneHandle(w http.ResponseWriter, key string) {
+func doneHandle(w http.ResponseWriter, response []byte) {
 	log.Println(authGranted)
 	w.WriteHeader(http.StatusOK)
-	w.Write(statusGranted(key))
+	w.Write(statusGranted(response))
 }
