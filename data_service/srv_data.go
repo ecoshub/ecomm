@@ -53,6 +53,7 @@ var (
 	srvStart   string = ">> Data Service Started"
 	srvEnd     string = ">> Data Service Shutdown Unexpectedly"
 	reqArrived string = ">> Request Arrived At"
+	reqBody    string = ">> Request Body:"
 )
 
 func init() {
@@ -105,6 +106,10 @@ func dataHandle(w http.ResponseWriter, r *http.Request) {
 		failHandle(w, err, http.StatusInternalServerError)
 		return
 	}
+
+	// request body log.
+	log.Println(reqBody, string(json))
+
 	// action value determines the CRUD ection.
 	action, err := jin.GetString(json, "action")
 	if err != nil {
@@ -257,7 +262,10 @@ func searchxRecord(json []byte) ([]byte, error, int) {
 			cols = []string{}
 		}
 	}
-	query := seecool.Select(envServiceMap["table"], cols...).Equals(keys, values)
+	query := seecool.Select(envServiceMap["table"], cols...)
+	for i := 0; i < len(keys); i++ {
+		query = query.Equal(keys[i], values[i])
+	}
 	orderCol, err := jin.GetString(json, "order_column")
 	if err != nil {
 		lene := len(err.Error())
@@ -355,6 +363,7 @@ func insertRecord(json []byte) (error, int) {
 	if err != nil {
 		return err, http.StatusInternalServerError
 	}
+	values = toLowerArray(values)
 	query := seecool.Insert(envServiceMap["table"]).
 		Keys(keys...).
 		Values(values...)
@@ -391,4 +400,11 @@ func doneHandle(w http.ResponseWriter) {
 	log.Println(dataSuccess)
 	w.WriteHeader(http.StatusOK)
 	w.Write(statusSuccess())
+}
+
+func toLowerArray(arr []string) []string {
+	for i, _ := range arr {
+		arr[i] = strings.ToLower(arr[i])
+	}
+	return arr
 }
