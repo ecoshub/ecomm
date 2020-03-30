@@ -202,7 +202,8 @@ func statusGranted(response []byte) []byte {
 func failHandle(w http.ResponseWriter, err error, status int) {
 	log.Println(authFailed.Link(err))
 	w.WriteHeader(status)
-	w.Write(statusFailed(err))
+	w.Write(statusFailed(authFailed))
+	authFailed.ClearLink()
 }
 
 func doneHandle(w http.ResponseWriter, response []byte) {

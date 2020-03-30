@@ -391,9 +391,10 @@ func statusSuccess() []byte {
 }
 
 func failHandle(w http.ResponseWriter, err error, status int) {
-	log.Println(dataFailed, err)
+	log.Println(dataFailed.Link(err))
 	w.WriteHeader(status)
-	w.Write(statusFailed(err))
+	w.Write(statusFailed(dataFailed))
+	dataFailed.ClearLink()
 }
 
 func doneHandle(w http.ResponseWriter) {
