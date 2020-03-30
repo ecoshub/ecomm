@@ -33,18 +33,22 @@ var (
 	// authentication service main port
 	mainPort string
 
+	// return columns
+	retColumns []string = []string{"user_id", "type", "email", "password"}
+
 	// json format schemes
 	responseScheme *jin.Scheme
 
 	// errors
 	missingEnvFile *errorx.Error = errorx.New("Fatal Error", "Missing environment file or wrong file directory", 0)
 	portNotExist   *errorx.Error = errorx.New("Fatal Error", "Main service port does not exist in the main environment file.", 1)
-	authFail       *errorx.Error = errorx.New("Database", "Wrong password", 2)
-	recordNotExist *errorx.Error = errorx.New("Database", "Record Not Exists", 3)
-	moreExist      *errorx.Error = errorx.New("Database", "More then one record exists with your primary key value", 4)
-	statError      *errorx.Error = errorx.New("Service", "Status method not allowed", 5)
-	authFailed     *errorx.Error = errorx.New("Service", "Authentication Request Failed", 6)
-	authGranted    *errorx.Error = errorx.New("Service", "Authentication Request Granted", 7)
+	retrunNotExist *errorx.Error = errorx.New("Fatal Error", "return array does not exist in the main environment file.", 2)
+	authFail       *errorx.Error = errorx.New("Database", "Wrong password", 3)
+	recordNotExist *errorx.Error = errorx.New("Database", "Record Not Exists", 4)
+	moreExist      *errorx.Error = errorx.New("Database", "More then one record exists with your primary key value", 5)
+	statError      *errorx.Error = errorx.New("Service", "Status method not allowed", 6)
+	authFailed     *errorx.Error = errorx.New("Service", "Authentication Request Failed", 7)
+	authGranted    *errorx.Error = errorx.New("Service", "Authentication Request Granted", 8)
 
 	// log strings
 	srvStart   string = ">> Authentication Service Started."
@@ -151,7 +155,7 @@ func checkRecord(table string, json []byte) ([]byte, int, error) {
 		return nil, http.StatusInternalServerError, err
 	}
 	// create a query from primary key search
-	query := seecool.Select(table).Equal(primaryKey, primKeyReceive)
+	query := seecool.Select(table, retColumns...).Equal(primaryKey, primKeyReceive)
 	result, err := seecool.QueryJson(db, query)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
