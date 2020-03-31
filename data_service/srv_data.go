@@ -14,13 +14,22 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var (
+const (
 	// environment directories,
 	// 'curr' keyword is a wild card for 'currentDirectory'
 	// valid wildcard can be user with 'github.com/ecoshub/penman' package
 	envDatabaseDir string = "curr/.env_database"
 	envServiceDir  string = "curr/.env_service"
 	envMainDir     string = "curr/../.env_main"
+
+	// log strings
+	srvStart   string = ">> Data Service Started"
+	srvEnd     string = ">> Data Service Shutdown Unexpectedly"
+	reqArrived string = ">> Request Arrived At"
+	reqBody    string = ">> Request Body:"
+)
+
+var (
 
 	// service environment map
 	envServiceMap map[string]string
@@ -48,12 +57,6 @@ var (
 	dataFailed        *errorx.Error = errorx.New("Request Failed", "Data Service Request Failed", 3)
 	dataSuccess       *errorx.Error = errorx.New("Request Done", "Data Service Request Done", 3)
 	emptyFields       *errorx.Error = errorx.New("Emtyp Field", "Necassary field is empty", 3)
-
-	// log strings
-	srvStart   string = ">> Data Service Started"
-	srvEnd     string = ">> Data Service Shutdown Unexpectedly"
-	reqArrived string = ">> Request Arrived At"
-	reqBody    string = ">> Request Body:"
 )
 
 func init() {
@@ -301,6 +304,7 @@ func searchxRecord(json []byte) ([]byte, error, int) {
 }
 
 func deleteRecord(json []byte) (error, int) {
+
 	keys, values, err := jin.GetKeysValues(json, "body")
 	if err != nil {
 		return err, http.StatusInternalServerError
