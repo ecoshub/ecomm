@@ -13,7 +13,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var (
+const (
 	// environment directories,
 	// 'curr' keyword is a wild card for 'currentDirectory'
 	// valid wildcard can be user with 'github.com/ecoshub/penman' package
@@ -21,6 +21,14 @@ var (
 	envAuthDir     string = "curr/.env_service"
 	envMainDir     string = "curr/../.env_main"
 
+	// log strings
+	srvStart   string = ">> Authentication Service Started."
+	srvEnd     string = ">> Authentication Service Shutdown Unexpectedly. Error:"
+	reqArrived string = ">> Request Arrived At"
+	reqBody    string = ">> Request Body:"
+)
+
+var (
 	// service environment map
 	envServiceMap map[string]string
 
@@ -49,12 +57,6 @@ var (
 	statError      *errorx.Error = errorx.New("Service", "Status method not allowed", 6)
 	authFailed     *errorx.Error = errorx.New("Service", "Authentication Request Failed", 7)
 	authGranted    *errorx.Error = errorx.New("Service", "Authentication Request Granted", 8)
-
-	// log strings
-	srvStart   string = ">> Authentication Service Started."
-	srvEnd     string = ">> Authentication Service Shutdown Unexpectedly. Error:"
-	reqArrived string = ">> Request Arrived At"
-	reqBody    string = ">> Request Body:"
 )
 
 func init() {
@@ -145,41 +147,29 @@ func checkRecord(table string, json []byte) ([]byte, int, error) {
 	passKey := envServiceMap["passKey"]
 
 	// get received primary key from request
-	primKeyReceive, err := jin.GetString(json, primaryKey)
-	if err != nil {
-		return nil, http.StatusInternalServerError, err
-	}
 	// get received primary password key from request
-	passKeyReceive, err := jin.GetString(json, passKey)
+	jsonMap, err := jin.GetAllMap(json, []string{primaryKey, passKey})
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
+	primKeyReceive := jsonMap[primaryKey]
+	passKeyReceive := jsonMap[passKey]
+
 	// create a query from primary key search
 	query := seecool.Select(table, retColumns...).Equal(primaryKey, primKeyReceive)
 	result, err := seecool.QueryJson(db, query)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
-	// empty response control
-	if string(result) == "[]" {
+	lenr, err := jin.Length(result)
+	if err != nil {
 		return nil, http.StatusBadRequest, recordNotExist
 	}
-	// parse response json
-	prs, err := jin.Parse(result)
-	if err != nil {
-		return nil, http.StatusInternalServerError, err
-	}
-	// get as array for length check
-	arr, err := prs.GetStringArray()
-	if err != nil {
-		return nil, http.StatusInternalServerError, err
-	}
-	// length check for response array
-	if len(arr) != 1 {
+	if lenr != 1 {
 		return nil, http.StatusInternalServerError, moreExist
 	}
 	// get correct password from database response
-	correctPass, err := prs.GetString("0", passKey)
+	correctPass, err := jin.GetString(result, "0", passKey)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
@@ -188,7 +178,7 @@ func checkRecord(table string, json []byte) ([]byte, int, error) {
 		return nil, http.StatusOK, authFail
 	}
 	//  get response body for return
-	response, err := prs.Get("0")
+	response, err := jin.Get(result, "0")
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
