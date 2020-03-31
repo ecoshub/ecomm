@@ -22,10 +22,11 @@ const (
 	envMainDir     string = "curr/../.env_main"
 
 	// log strings
-	srvStart   string = ">> Authentication Service Started."
-	srvEnd     string = ">> Authentication Service Shutdown Unexpectedly. Error:"
-	reqArrived string = ">> Request Arrived At"
-	reqBody    string = ">> Request Body:"
+	srvStart    string = ">> Authentication Service Started."
+	srvEnd      string = ">> Authentication Service Shutdown Unexpectedly. Error:"
+	reqArrived  string = ">> Request Arrived At"
+	reqBody     string = ">> Request Body:"
+	authGranted string = "Authentication Request Granted"
 )
 
 var (
@@ -56,7 +57,6 @@ var (
 	moreExist      *errorx.Error = errorx.New("Database", "More then one record exists with your primary key value", 5)
 	statError      *errorx.Error = errorx.New("Service", "Status method not allowed", 6)
 	authFailed     *errorx.Error = errorx.New("Service", "Authentication Request Failed", 7)
-	authGranted    *errorx.Error = errorx.New("Service", "Authentication Request Granted", 8)
 )
 
 func init() {
@@ -165,8 +165,11 @@ func checkRecord(table string, json []byte) ([]byte, int, error) {
 	if err != nil {
 		return nil, http.StatusBadRequest, recordNotExist
 	}
-	if lenr != 1 {
+	if lenr > 1 {
 		return nil, http.StatusInternalServerError, moreExist
+	}
+	if lenr == 0 {
+		return nil, http.StatusInternalServerError, recordNotExist
 	}
 	// get correct password from database response
 	correctPass, err := jin.GetString(result, "0", passKey)
