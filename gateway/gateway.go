@@ -1,6 +1,7 @@
 package main
 
 import (
+	"breakx"
 	"bytes"
 	"errorx"
 	"fmt"
@@ -14,16 +15,32 @@ import (
 	"github.com/gorilla/sessions"
 )
 
-var (
+const (
 	// environment directories,
 	// 'curr' keyword is a wild card for 'currentDirectory'
 	// valid wildcard can be user with 'ecoshub/penman' and 'ecoshub/seecool' GetEnv() func.
-	envMainDir        string = "curr/../.env_main"
-	secretDir         string = "../.secret"
-	secret            string
-	store             *sessions.CookieStore
+	envMainDir string = "curr/../.env_main"
+	secretDir  string = "../.secret"
+
+	// log strings
+	srvStart   string = ">> Gateway Service Started."
+	srvEnd     string = ">> Gateway Service Shutdown Unexpectedly. Error:"
+	reqArrived string = ">> Request Arrived At"
+	reqBody    string = ">> Request Body:"
+)
+
+var (
+
+	// main session store
+	store *sessions.CookieStore
+
+	// session crypto string
+	secret string
+
+	// auth service port
 	auth_service_port string
 
+	// my service name from env file
 	myServiceName string = "gate_service_port"
 
 	// gateway service main port
@@ -35,12 +52,6 @@ var (
 	// errors
 	portNotExist   *errorx.Error = errorx.New("Fatal Error", "Main service port does not exist in the main environment file.", 0)
 	secretNotExist *errorx.Error = errorx.New("Fatal Error", "secret not exist in the main environment file.", 1)
-
-	// log strings
-	srvStart   string = ">> Gateway Service Started."
-	srvEnd     string = ">> Gateway Service Shutdown Unexpectedly. Error:"
-	reqArrived string = ">> Request Arrived At"
-	reqBody    string = ">> Request Body:"
 )
 
 func init() {
@@ -67,14 +78,15 @@ func init() {
 }
 
 func main() {
-
 	log.Println(srvStart, "port:", mainPort)
 	http.HandleFunc("/login", loginHandle)
 	http.HandleFunc("/logout", logoutHandle)
-	http.ListenAndServe(":"+mainPort, nil)
+	err := http.ListenAndServe(":"+mainPort, nil)
+	log.Println(srvEnd, err)
 }
 
 func loginHandle(w http.ResponseWriter, r *http.Request) {
+	// band json error is wrong?
 	loginSession, auth, err := cookieHandle(w, r)
 	if err != nil {
 		failHandle(w, err, http.StatusInternalServerError)
@@ -94,38 +106,40 @@ func cookieHandle(w http.ResponseWriter, r *http.Request) (*sessions.Session, bo
 	if err != nil {
 		return nil, false, err
 	}
-
+	// request read
+	json, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		breakx.Point()
+		return loginSession, false, err
+	}
+	action, err := jin.GetString(json, "action")
+	if err != nil {
+		lene := len(err.Error())
+		errCode := err.Error()[lene-3 : lene-1]
+		if errCode != "08" {
+			breakx.Point()
+			return loginSession, false, err
+		}
+	}
 	// shortcut auth
-	if loginSession.Values["auth"] == "true" {
+	if loginSession.Values["auth"] == "true" && action != "login" {
 		// keep going
 		return loginSession, true, nil
 	}
 
 	// mthod check for login action.
 	if string(r.Method) == "POST" {
-		// request read
-		json, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			return loginSession, false, err
-		}
-		action, err := jin.GetString(json, "action")
-		if err != nil {
-			lene := len(err.Error())
-			errCode := err.Error()[lene-3 : lene-1]
-			if errCode != "08" {
-				return loginSession, false, err
-			}
-		}
-
 		// wants to login?
 		if action == "login" {
 			resp, auth, err := authenticationControl(json)
 			if err != nil {
+				breakx.Point()
 				return loginSession, false, err
 			}
 			if auth {
 				respMap, err := jin.GetMap(resp, "response")
 				if err != nil {
+					breakx.Point()
 					return loginSession, false, err
 				}
 				for k, v := range respMap {
@@ -134,8 +148,10 @@ func cookieHandle(w http.ResponseWriter, r *http.Request) (*sessions.Session, bo
 				loginSession.Values["auth"] = "true"
 				err = loginSession.Save(r, w)
 				if err != nil {
+					breakx.Point()
 					return loginSession, false, err
 				}
+				breakx.Point()
 				return loginSession, true, nil
 			}
 		}
