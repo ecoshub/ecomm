@@ -80,11 +80,6 @@ func init() {
 	if dbEnv == "" {
 		panic(dbEnv)
 	}
-	db, err := dbConn()
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
 	// response scheme
 	responseScheme = jin.MakeScheme("status", "response", "error")
 }
@@ -128,18 +123,10 @@ func authHandle(w http.ResponseWriter, r *http.Request) {
 	doneHandle(w, key)
 }
 
-func dbConn() (*sql.DB, error) {
+func checkRecord(table string, json []byte) ([]byte, int, error) {
 	db, err := sql.Open(envServiceMap["user"], dbEnv)
 	if err != nil {
-		return nil, err
-	}
-	return db, nil
-}
-
-func checkRecord(table string, json []byte) ([]byte, int, error) {
-	db, err := dbConn()
-	if err != nil {
-		return nil, http.StatusInternalServerError, err
+		return nil, -1, err
 	}
 	defer db.Close()
 	// get control keys
